@@ -7,15 +7,12 @@
 extern crate glium;
 extern crate glutin;
 extern crate nalgebra;
+extern crate glCookbook;
 
 use glutin::{Event};
 use glium::{DisplayBuild, Surface, Display};
 use nalgebra::{PerspMat3, Iso3, Vec3, Mat4, ToHomogeneous, Rotation};
-
-static GRID_WIDTH: f32 = 20f32;
-static GRID_DEPTH: f32 = 20f32;
-static X_COUNT: u16 = 60;
-static Z_COUNT: u16 = 60;
+use glCookbook::{BaseVertex, Grid};
 
 // Program entry point
 fn main() {
@@ -27,12 +24,13 @@ fn main() {
         .build_glium()
         .unwrap();
 
-    let program    = create_shader_program(&display);
-    let vertices   = build_mesh_vertices();
-    let vertex_buf = glium::VertexBuffer::new(&display, vertices);
-    let indices    = glium::index::IndexBuffer::new(
-        &display, glium::index::TrianglesList(build_mesh_indices())
+    let grid: Grid<Vertex> = Grid::new(20.0, 20.0, 60, 60);
+    let vertex_buf         = glium::VertexBuffer::new(&display, grid.vertices);
+    let indices            = glium::index::IndexBuffer::new(
+        &display, glium::index::TrianglesList(grid.indices)
     );
+
+    let program = create_shader_program(&display);
 
     implement_vertex!(Vertex, position);
 
@@ -107,13 +105,13 @@ fn create_shader_program(display: &Display) -> glium::Program {
         uniform mat4 MVP;
         uniform float time;
 
-        const float amplitude = 15.0;
+        const float amplitude = 2.0;
         const float frequency = 0.5;
         const float PI = 3.14159;
 
         void main() {
-            float distance = max(length(position), 0.0000001);
-            float y = 1.0 / distance * amplitude*sin(-PI*distance*frequency+time);
+            float distance = length(position * frequency);
+            float y = amplitude*sin(-PI*distance+time);
             gl_Position = MVP * vec4(position.x, position.z, y, 1.0);
         }
     "#;
@@ -131,61 +129,13 @@ fn create_shader_program(display: &Display) -> glium::Program {
     ).unwrap()
 }
 
-fn build_mesh_vertices() -> Vec<Vertex> {
-    let mut vertices = vec![];
-    for j in 0..Z_COUNT {
-        // scaled_j is a value between -1 and 1
-        let scaled_j = ((j as f32)/(Z_COUNT as f32 - 1.0)) * 2.0 - 1.0;
-
-        for i in 0..X_COUNT {
-            let scaled_i = ((i as f32)/(X_COUNT as f32 - 1.0)) * 2.0 - 1.0;
-
-            vertices.push(Vertex { position : [
-                scaled_i * GRID_WIDTH, -1.0, scaled_j * GRID_DEPTH
-            ] });
-        }
-    }
-
-    vertices
-}
-
-fn build_mesh_indices() -> Vec<u16> {
-    let mut indices = vec![];
-    let mut count = 0;
-
-    for row in 0..Z_COUNT-1 {
-        for col in 0..X_COUNT-1 {
-            let tl = row * X_COUNT + col;
-            let bl = tl + 1;
-            let tr = tl + X_COUNT;
-            let br = tr + 1;
-
-            if count % 2 == 0 {
-                indices.push(tl);
-                indices.push(bl);
-                indices.push(br);
-
-                indices.push(tl);
-                indices.push(br);
-                indices.push(tr);
-            }
-            else {
-                indices.push(tl);
-                indices.push(bl);
-                indices.push(tr);
-
-                indices.push(tr);
-                indices.push(bl);
-                indices.push(br);
-            }
-            count += 1;
-        }
-    }
-    indices
-}
-
-
 #[derive(Clone, Copy)]
 struct Vertex {
     position : [f32; 3]
+}
+
+impl BaseVertex for Vertex {
+    fn from_position(x: f32, y: f32, z: f32) -> Vertex {
+        Vertex { position : [x, y, z] }
+    }
 }
