@@ -6,13 +6,13 @@
 #[macro_use]
 extern crate glium;
 extern crate glutin;
-extern crate nalgebra;
 extern crate glCookbook;
+extern crate nalgebra;
 
 use glutin::{Event};
 use glium::{DisplayBuild, Surface, Display};
-use nalgebra::{PerspMat3, Iso3, Vec3, Mat4, ToHomogeneous, Rotation};
-use glCookbook::{BaseVertex, Grid};
+use nalgebra::{Iso3, Vec3, ToHomogeneous, Rotation};
+use glCookbook::{BaseVertex, Grid, FreeCamera};
 
 // Program entry point
 fn main() {
@@ -34,10 +34,10 @@ fn main() {
 
     implement_vertex!(Vertex, position);
 
-    let mut projection = create_projection();
     let mut time       = 0.0f32;
     let mut model      = Iso3::new(nalgebra::zero(), nalgebra::zero());
-    let view           = Iso3::new(Vec3::new(0.0, 0.0, 30.0), nalgebra::zero()).to_homogeneous();
+    let mut camera = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
+    camera.pos.z = 30.0;
 
     let mut draw_params: glium::DrawParameters = std::default::Default::default();
     draw_params.polygon_mode = glium::PolygonMode::Line;
@@ -50,7 +50,7 @@ fn main() {
 
         model.rotation = model.rotation.append_rotation(&(Vec3::y() * rx));
         model.rotation = model.rotation.append_rotation(&(Vec3::x() * ry));
-        let mvp = *projection.as_mat() * view * model.to_homogeneous();
+        let mvp = camera.projection.to_mat() * camera.get_view_matrix() * model.to_homogeneous();
 
         let uniforms = uniform!(
             MVP  : mvp,
@@ -69,7 +69,7 @@ fn main() {
             match event {
                 Event::Closed => break 'mainLoop,
                 Event::Resized(w, h) => {
-                    projection.set_aspect((w as f32)/(h as f32));
+                    camera.projection.set_aspect((w as f32)/(h as f32));
                     center_x = (w as i32) / 2;
                     center_y = (h as i32) / 2;
                 },
@@ -91,10 +91,6 @@ fn main() {
         let _ = (*display.get_window().unwrap())
             .set_cursor_position(center_x, center_y);
     }
-}
-
-fn create_projection() -> PerspMat3<f32> {
-    PerspMat3::new(1.0, 75.0 * 3.14159 / 180.0, 1.0, 200.0)
 }
 
 fn create_shader_program(display: &Display) -> glium::Program {

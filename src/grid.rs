@@ -1,4 +1,3 @@
-use nalgebra::{Vec3};
 use ::BaseVertex;
 
 pub struct Grid<T: BaseVertex> {
