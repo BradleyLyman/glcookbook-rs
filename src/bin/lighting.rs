@@ -8,10 +8,14 @@ extern crate glium;
 extern crate glutin;
 extern crate glCookbook;
 extern crate nalgebra;
+extern crate num;
 
-use glutin::{Event};
+use std::default::{Default};
+use glutin::{Event, VirtualKeyCode};
 use glium::{DisplayBuild, Surface, Display};
 use glCookbook::{BaseVertex, Grid, FreeCamera};
+use nalgebra::{Vec3, Norm};
+use num::Float;
 
 // Program entry point
 fn main() {
@@ -23,7 +27,8 @@ fn main() {
         .build_glium()
         .unwrap();
 
-    let grid: Grid<Vertex> = Grid::new(20.0, 20.0, 60, 60);
+    let ball: IsoSphere = IsoSphere::new();
+    let grid: Grid<Vertex> = Grid::new(20.0, 20.0, 20, 20);
     let mut camera         = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
     camera.pos.y = 2.0;
 
@@ -33,24 +38,47 @@ fn main() {
         &display, glium::index::TrianglesList(grid.indices)
     );
 
+    let ball_v_buf   =
+        glium::VertexBuffer::new(&display, ball.faces_to_vertex_array::<Vertex>());
+    let ball_indices =
+        glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
+    let ball_model = nalgebra::Mat4::new(
+        1.0f32, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 2.0,
+        0.0, 0.0, 1.0, -20.0,
+        0.0, 0.0, 0.0, 1.0
+    );
+
     implement_vertex!(Vertex, position);
 
     let mut controller = Controller::new();
-    controller.rot_speed = 1.0/10.0;
+    controller.rot_speed = 1.0/40.0;
+    controller.move_speed = 0.2;
+
+    let mut draw_params = glium::DrawParameters::default();
+    draw_params.polygon_mode = glium::PolygonMode::Line;
 
     'mainLoop : loop {
-        controller.update(&mut camera, &display);
+        let mv = camera.projection.to_mat() * camera.get_view_matrix();
 
-        let uniforms = uniform!(
-            MVP  : camera.projection.to_mat() * camera.get_view_matrix()
-        );
 
         let mut target = display.draw();
         target.clear_color(0.02, 0.02, 0.05, 1.0);
+
+        let mut uniforms = uniform!(
+            MVP  : mv
+        );
         target.draw(
-            &vertex_buf, &indices, &program, &uniforms,
-            &std::default::Default::default()
+            &vertex_buf, &indices, &program, &uniforms, &draw_params
         ).unwrap();
+
+        uniforms = uniform!{
+            MVP : mv * ball_model
+        };
+        target.draw(
+            &ball_v_buf, &ball_indices, &program, &uniforms, &draw_params
+        ).unwrap();
+
         target.finish();
 
         for event in display.poll_events() {
@@ -63,6 +91,7 @@ fn main() {
             }
             controller.process_event(&event);
         }
+        controller.update(&mut camera, &display);
     }
 }
 
@@ -89,6 +118,121 @@ fn create_shader_program(display: &Display) -> glium::Program {
     glium::Program::from_source(
         display, vertex_shader_src, fragment_shader_src, None
     ).unwrap()
+}
+
+struct Face {
+    pub v1 : Vec3<f32>,
+    pub v2 : Vec3<f32>,
+    pub v3 : Vec3<f32>
+}
+
+impl Face {
+    fn from_vec3(v1: Vec3<f32>, v2: Vec3<f32>, v3: Vec3<f32>) -> Face {
+        Face {
+            v1: v1,
+            v2: v2,
+            v3: v3
+        }
+    }
+}
+
+struct IsoSphere {
+    faces        : Vec<Face>
+}
+
+impl IsoSphere {
+    fn new() -> IsoSphere {
+        let mut sphere = IsoSphere { faces : vec![] };
+
+        sphere.generate_icosahedron();
+        sphere
+    }
+
+    fn faces_to_vertex_array<T: BaseVertex>(&self) -> Vec<T> {
+        let mut vertices = vec![];
+        for face in &self.faces {
+            vertices.push(T::from_position(face.v1.x, face.v1.y, face.v1.z));
+            vertices.push(T::from_position(face.v2.x, face.v2.y, face.v2.z));
+            vertices.push(T::from_position(face.v3.x, face.v3.y, face.v3.z));
+        }
+        vertices
+    }
+
+    fn subdivide_faces(&mut self) {
+        let mut new_faces = vec![];
+
+        for face in &self.faces {
+            let Face { v1, v2, v3 } = *face;
+            let a = ((v1 + v2) * 1.0/2.0).normalize();
+            let b = ((v2 + v3) * 1.0/2.0).normalize();
+            let c = ((v1 + v3) * 1.0/2.0).normalize();
+
+            new_faces.push(Face::from_vec3(v1, a, v3));
+            new_faces.push(Face::from_vec3(a, b, c));
+            new_faces.push(Face::from_vec3(a, v2, b));
+            new_faces.push(Face::from_vec3(c, b, v3));
+        }
+
+        self.faces = new_faces;
+    }
+
+    fn generate_tetrahedron(&mut self) {
+        let p0 = Vec3::new(1.0, 1.0, 1.0).normalize();
+        let p1 = Vec3::new(1.0, -1.0, -1.0).normalize();
+        let p2 = Vec3::new(-1.0, -1.0, 1.0).normalize();
+        let p3 = Vec3::new(-1.0, 1.0, -1.0).normalize();
+
+        self.faces = vec![
+            Face::from_vec3(p0, p1, p2),
+            Face::from_vec3(p0, p1, p3),
+            Face::from_vec3(p0, p2, p3),
+            Face::from_vec3(p1, p2, p3)
+        ]
+    }
+
+    fn generate_icosahedron(&mut self) {
+        let t = (1.0 + 5.0.sqrt())/2.0;
+        let p0  = Vec3::new( 0.0,  t,  1.0).normalize();
+        let p1  = Vec3::new( 0.0,  t, -1.0).normalize();
+        let p2  = Vec3::new( 0.0, -t,  1.0).normalize();
+        let p3  = Vec3::new( 0.0, -t, -1.0).normalize();
+
+        let p4  = Vec3::new(-1.0, 0.0,  -t).normalize();
+        let p5  = Vec3::new( 1.0, 0.0,  -t).normalize();
+        let p6  = Vec3::new( 1.0, 0.0,   t).normalize();
+        let p7  = Vec3::new(-1.0, 0.0,   t).normalize();
+
+        let p8  = Vec3::new(-t,  1.0,  0.0).normalize();
+        let p9  = Vec3::new(-t, -1.0,  0.0).normalize();
+        let p10 = Vec3::new( t,  1.0,  0.0).normalize();
+        let p11 = Vec3::new( t, -1.0,  0.0).normalize();
+
+        self.faces = vec![
+            Face::from_vec3(p1, p10, p5),
+            Face::from_vec3(p1, p5, p4),
+            Face::from_vec3(p1, p8, p4),
+            Face::from_vec3(p1, p8, p0),
+            Face::from_vec3(p1, p0, p10),
+
+            Face::from_vec3(p7, p0, p6),
+            Face::from_vec3(p7, p6, p2),
+            Face::from_vec3(p7, p2, p9),
+            Face::from_vec3(p7, p9, p8),
+            Face::from_vec3(p7, p8, p0),
+
+            Face::from_vec3(p11, p10, p5),
+            Face::from_vec3(p11, p5, p3),
+            Face::from_vec3(p11, p3, p2),
+            Face::from_vec3(p11, p2, p6),
+            Face::from_vec3(p11, p6, p10),
+
+            Face::from_vec3(p0, p6, p10),
+            Face::from_vec3(p8, p4, p9),
+            Face::from_vec3(p9, p4, p3),
+            Face::from_vec3(p9, p3, p2),
+            Face::from_vec3(p4, p3, p5)
+        ];
+    }
 }
 
 struct Controller {
@@ -134,6 +278,16 @@ impl Controller {
                 else {
                     self.rx = 0.0;
                     self.ry = 0.0;
+                }
+            },
+            Event::KeyboardInput(state, _, Some(k)) => {
+                let pressed = state == glutin::ElementState::Pressed;
+                match k {
+                    VirtualKeyCode::Comma => self.front = pressed,
+                    VirtualKeyCode::O     => self.back  = pressed,
+                    VirtualKeyCode::A     => self.left  = pressed,
+                    VirtualKeyCode::E     => self.right = pressed,
+                    _ => ()
                 }
             }
             _ => ()

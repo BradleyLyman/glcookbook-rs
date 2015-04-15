@@ -7,3 +7,4 @@ authors = ["brad <lyman.brad3211@gmail.com>"]
 glium    = "*"
 glutin   = "*"
 nalgebra = "*"
+num      = "*"
