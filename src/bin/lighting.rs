@@ -28,9 +28,13 @@ fn main() {
         .unwrap();
 
     let ball: IsoSphere = IsoSphere::new();
-    let grid: Grid<Vertex> = Grid::new(20.0, 20.0, 20, 20);
+    let mut grid: Grid<Vertex> = Grid::new(20.0, 20.0, 20, 20);
     let mut camera         = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
     camera.pos.y = 2.0;
+
+    for vertex in &mut grid.vertices {
+        vertex.normal = [0.0, 1.0, 0.0];
+    }
 
     let normal_program = create_normal_renderer_program(&display);
     let program        = create_shader_program(&display);
@@ -39,6 +43,7 @@ fn main() {
     let indices    = glium::index::IndexBuffer::new(
         &display, glium::index::TrianglesList(grid.indices)
     );
+    let norm_indices = glium::index::NoIndices(glium::index::PrimitiveType::Points);
 
     let ball_v_buf   =
         glium::VertexBuffer::new(&display, ball.faces_to_vertex_array::<Vertex>());
