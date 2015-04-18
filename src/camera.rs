@@ -34,16 +34,18 @@ impl FreeCamera {
 
     /// Returns the matrix representing what the camera is looking at
     pub fn get_view_matrix(&self) -> Mat4<f32> {
-        ::nalgebra::to_homogeneous(&{
-            let mut view = Iso3::new(::nalgebra::zero(), ::nalgebra::zero());
-            view.look_at_z(
-                &self.pos,
-                &(self.pos + self.look),
-                &self.up
-            );
+        ::nalgebra::to_homogeneous(&self.get_view_transform())
+    }
 
-            ::nalgebra::inv(&view).unwrap()
-        })
+    /// Returns the camera transform as an Iso3
+    pub fn get_view_transform(&self) -> Iso3<f32> {
+        let mut view = Iso3::new(::nalgebra::zero(), ::nalgebra::zero());
+        view.look_at_z(
+            &self.pos,
+            &(self.pos + self.look),
+            &self.up
+        );
+        ::nalgebra::inv(&view).unwrap()
     }
 
     /// Moves the camera in the direction of the look vector.

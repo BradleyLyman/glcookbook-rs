@@ -15,7 +15,7 @@ use glutin::{Event, VirtualKeyCode};
 use glium::{DisplayBuild, Surface, Display};
 use glium::index::{IndicesSource, ToIndicesSource, NoIndices, PrimitiveType};
 use glCookbook::{BaseVertex, Grid, FreeCamera};
-use nalgebra::{Vec3, Norm, Mat4};
+use nalgebra::{Vec3, Norm, Mat4, Iso3, Transformation, RotationMatrix};
 use num::Float;
 
 // Program entry point
@@ -23,46 +23,44 @@ fn main() {
     let display = glutin::WindowBuilder::new()
         .with_dimensions(1366, 768)
         .with_multisampling(4)
+        .with_depth_buffer(24)
         .with_vsync()
         .with_title("tetra".to_string())
         .build_glium()
         .unwrap();
 
-    let ball: IsoSphere = IsoSphere::new();
-    let mut grid = Grid::new(20.0, 20.0, 20, 20);
-    let mut camera         = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
-    camera.pos.y = 2.0;
+    let ball = IsoSphere::new();
+    let grid = Grid::new(20.0, 20.0, 20, 20);
+    let ball_model =
+        nalgebra::Iso3::new(Vec3::new(0.0, 2.0, -20.0), nalgebra::zero());
 
-
-    let normal_program = create_normal_renderer_program(&display);
-    let lighting_renderer = LightingRenderer::new(&display);
-
-    let ball_model = nalgebra::Mat4::new(
-        1.0f32, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 2.0,
-        0.0, 0.0, 1.0, -20.0,
-        0.0, 0.0, 0.0, 1.0
-    );
 
     implement_vertex!(Vertex, position, normal);
+    let mut lighting_renderer = LightingRenderer::new(&display);
+    let mut camera            = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
+
+    camera.pos.y = 2.0;
+    lighting_renderer.light_position.y = 10.0;
+
 
     let mut controller = Controller::new();
     controller.rot_speed = 1.0/40.0;
     controller.move_speed = 0.2;
 
-    let mut draw_params = glium::DrawParameters::default();
-    draw_params.polygon_mode = glium::PolygonMode::Fill;
-
     'mainLoop : loop {
-        let mv = camera.projection.to_mat() * camera.get_view_matrix();
-        let mvp = mv * ball_model;
-
-
         let mut target = display.draw();
-        target.clear_color(0.02, 0.02, 0.05, 1.0);
+        target.clear_color_and_depth((0.02, 0.02, 0.05, 1.0), 1.0);
 
-        lighting_renderer.draw(&mut target, &grid, &mv);
-        lighting_renderer.draw(&mut target, &ball, &mvp);
+
+        lighting_renderer.draw(
+            &mut target, &grid, &camera.projection.to_mat(),
+            &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero())
+        );
+
+        lighting_renderer.draw(
+            &mut target, &ball, &camera.projection.to_mat(),
+            &camera.get_view_transform(), &ball_model
+        );
 
         target.finish();
 
@@ -131,22 +129,48 @@ fn create_normal_renderer_program(display: &Display) -> glium::Program {
 }
 
 struct LightingRenderer {
-    pub program: glium::Program,
-    display: Display
+    pub program        : glium::Program,
+    pub light_position : Vec3<f32>,
+    pub diffuse_color  : Vec3<f32>,
+    pub specular_color : Vec3<f32>,
+    pub shininess      : f32,
+    display            : Display
 }
 
 impl LightingRenderer {
     fn new(display: &Display) -> LightingRenderer {
         LightingRenderer {
-            program: LightingRenderer::create_shader_program(&display),
-            display: display.clone()
+            program        : LightingRenderer::create_shader_program(&display),
+            light_position : Vec3::new(0.0, 0.0, 0.0),
+            diffuse_color  : Vec3::new(1.0, 1.0, 1.0),
+            specular_color : Vec3::new(1.0, 1.0, 1.0),
+            shininess      : 0.5,
+            display        : display.clone()
         }
     }
 
-    fn draw<T>(&self, frame: &mut glium::Frame, obj: &T, mvp: &Mat4<f32>)
-        where T: Renderable {
+    fn draw<T>(
+        &self, frame: &mut glium::Frame,
+        obj: &T, proj: &Mat4<f32>, view: &Iso3<f32>, model: &Iso3<f32>
+    ) where T: Renderable {
+
+        let mv  = view.prepend_transformation(model);
+        let mvp = *proj * nalgebra::to_homogeneous(&mv);
+        let n   = *mv.to_rot_mat().submat();
+
+        let params = glium::DrawParameters {
+            depth_test: glium::DepthTest::IfLess,
+            depth_write: true,
+            .. std::default::Default::default()
+        };
+
         let uniforms = uniform!(
-            MVP : *mvp
+            MVP            : mvp,
+            MV             : nalgebra::to_homogeneous(&mv),
+            N              : n,
+            light_position : self.light_position,
+            diffuse_color  : self.diffuse_color,
+            specular_color : self.specular_color
         );
 
         match obj.get_indices(&self.display) {
@@ -155,7 +179,7 @@ impl LightingRenderer {
                     &obj.get_vertex_array::<Vertex>(&self.display),
                     &NoIndices(primitive),
                     &self.program, &uniforms,
-                    &std::default::Default::default()
+                    &params
                 ).unwrap();
             },
             RenderableIndices::Buffer(ref buffer) => {
@@ -163,7 +187,7 @@ impl LightingRenderer {
                     &obj.get_vertex_array::<Vertex>(&self.display),
                     buffer,
                     &self.program, &uniforms,
-                    &std::default::Default::default()
+                    &params
                 ).unwrap();
             }
         }
@@ -173,19 +197,40 @@ impl LightingRenderer {
         let vertex_shader_src = r#"
             #version 330
             in vec3 position;
+            in vec3 normal;
+            out vec4 color;
 
             uniform mat4 MVP;
+            uniform mat4 MV;
+            uniform mat3 N;
+            uniform vec3 light_position;
+            uniform vec3 diffuse_color;
+            uniform vec3 specular_color;
+            uniform float shininess;
+
+            const vec3 eye_space_camera_pos = vec3(0,0,0);
 
             void main() {
-                gl_Position = MVP * vec4(position, 1.0);
+                vec4 eye_space_light_pos = MV * vec4(light_position, 1);
+                vec4 eye_space_pos       = MV * vec4(position, 1);
+                vec3 eye_space_normal    = normalize(N*normal);
+                vec3 L = normalize(eye_space_light_pos.xyz-eye_space_pos.xyz);
+                vec3 V = normalize(eye_space_camera_pos.xyz-eye_space_pos.xyz);
+                vec3 H = normalize(L + V);
+                float diffuse  = max(0, dot(eye_space_normal, L));
+                float specular = max(0, pow(dot(eye_space_normal, H), shininess));
+
+                color = diffuse*vec4(diffuse_color, 1);// + specular*vec4(specular_color, 1);
+                gl_Position = MVP * vec4(position , 1.0);
             }
         "#;
 
         let fragment_shader_src = r#"
             #version 330
+            in vec4 color;
             out vec4 vFragColor;
             void main() {
-                vFragColor = vec4(1.0);
+                vFragColor = color;;
             }
         "#;
 
@@ -226,7 +271,13 @@ impl Renderable for IsoSphere {
 impl Renderable for Grid {
     fn get_vertex_array<T: RenderableVertex>(&self, display: &Display)
         -> glium::VertexBuffer<T> {
-        glium::VertexBuffer::new(display, self.get_vertices::<T>())
+        let mut vertices = self.get_vertices::<T>();
+
+        for vertex in &mut vertices {
+            vertex.set_normal(0.0, 1.0, 0.0);
+        }
+
+        glium::VertexBuffer::new(display, vertices)
     }
 
     fn get_indices(&self, display: &Display) -> RenderableIndices {
@@ -264,6 +315,8 @@ impl IsoSphere {
         let mut sphere = IsoSphere { faces : vec![] };
 
         sphere.generate_icosahedron();
+        sphere.subdivide_faces();
+        sphere.subdivide_faces();
         sphere
     }
 
@@ -292,9 +345,9 @@ impl IsoSphere {
             let b = ((v2 + v3) * 1.0/2.0).normalize();
             let c = ((v1 + v3) * 1.0/2.0).normalize();
 
-            new_faces.push(Face::from_vec3(v1, a, v3));
             new_faces.push(Face::from_vec3(a, b, c));
-            new_faces.push(Face::from_vec3(a, v2, b));
+            new_faces.push(Face::from_vec3(v1, a, c));
+            new_faces.push(Face::from_vec3(a, b, v2));
             new_faces.push(Face::from_vec3(c, b, v3));
         }
 
