@@ -13,8 +13,9 @@ extern crate num;
 use std::default::{Default};
 use glutin::{Event, VirtualKeyCode};
 use glium::{DisplayBuild, Surface, Display};
+use glium::index::{IndicesSource, ToIndicesSource, NoIndices, PrimitiveType};
 use glCookbook::{BaseVertex, Grid, FreeCamera};
-use nalgebra::{Vec3, Norm};
+use nalgebra::{Vec3, Norm, Mat4};
 use num::Float;
 
 // Program entry point
@@ -37,7 +38,7 @@ fn main() {
     }
 
     let normal_program = create_normal_renderer_program(&display);
-    let program        = create_shader_program(&display);
+    let lighting_renderer = LightingRenderer::new(&display);
 
     let vertex_buf = glium::VertexBuffer::new(&display, grid.vertices);
     let indices    = glium::index::IndexBuffer::new(
@@ -69,6 +70,7 @@ fn main() {
 
     'mainLoop : loop {
         let mv = camera.projection.to_mat() * camera.get_view_matrix();
+        let mvp = mv * ball_model;
 
 
         let mut target = display.draw();
@@ -78,19 +80,18 @@ fn main() {
             MVP  : mv
         );
         target.draw(
-            &vertex_buf, &indices, &program, &uniforms, &draw_params
+            &vertex_buf, &indices, &lighting_renderer.program, &uniforms, &draw_params
         ).unwrap();
 
         uniforms = uniform!{
-            MVP : mv * ball_model
+            MVP : mvp
         };
         target.draw(
             &ball_v_buf, &ball_norm_indices, &normal_program, &uniforms, &draw_params
         ).unwrap();
 
-        target.draw(
-            &ball_v_buf, &ball_indices, &program, &uniforms, &draw_params
-        ).unwrap();
+
+        lighting_renderer.draw(&mut target, &ball, &mvp);
 
         target.finish();
 
@@ -108,30 +109,6 @@ fn main() {
     }
 }
 
-fn create_shader_program(display: &Display) -> glium::Program {
-    let vertex_shader_src = r#"
-        #version 330
-        in vec3 position;
-
-        uniform mat4 MVP;
-
-        void main() {
-            gl_Position = MVP * vec4(position, 1.0);
-        }
-    "#;
-
-    let fragment_shader_src = r#"
-        #version 330
-        out vec4 vFragColor;
-        void main() {
-            vFragColor = vec4(1.0);
-        }
-    "#;
-
-    glium::Program::from_source(
-        display, vertex_shader_src, fragment_shader_src, None
-    ).unwrap()
-}
 
 fn create_normal_renderer_program(display: &Display) -> glium::Program {
     let vertex_shader_src = r#"
@@ -180,6 +157,96 @@ fn create_normal_renderer_program(display: &Display) -> glium::Program {
     glium::Program::from_source(
         display, vertex_shader_src, fragment_shader_src, Some(geometry_shader_src)
     ).unwrap()
+}
+
+struct LightingRenderer {
+    pub program: glium::Program,
+    display: Display
+}
+
+impl LightingRenderer {
+    fn new(display: &Display) -> LightingRenderer {
+        LightingRenderer {
+            program: LightingRenderer::create_shader_program(&display),
+            display: display.clone()
+        }
+    }
+
+    fn draw<T>(&self, frame: &mut glium::Frame, obj: &T, mvp: &Mat4<f32>)
+        where T: Renderable {
+        let uniforms = uniform!(
+            MVP : *mvp
+        );
+
+        match obj.get_indices() {
+            RenderableIndices::None(primitive) => {
+                frame.draw(
+                    &obj.get_vertex_array::<Vertex>(&self.display),
+                    &NoIndices(primitive),
+                    &self.program, &uniforms,
+                    &std::default::Default::default()
+                ).unwrap();
+            },
+            RenderableIndices::Buffer(ref buffer) => {
+                frame.draw(
+                    &obj.get_vertex_array::<Vertex>(&self.display),
+                    buffer,
+                    &self.program, &uniforms,
+                    &std::default::Default::default()
+                ).unwrap();
+            }
+        }
+    }
+
+    fn create_shader_program(display: &Display) -> glium::Program {
+        let vertex_shader_src = r#"
+            #version 330
+            in vec3 position;
+
+            uniform mat4 MVP;
+
+            void main() {
+                gl_Position = MVP * vec4(position, 1.0);
+            }
+        "#;
+
+        let fragment_shader_src = r#"
+            #version 330
+            out vec4 vFragColor;
+            void main() {
+                vFragColor = vec4(1.0);
+            }
+        "#;
+
+        glium::Program::from_source(
+            display, vertex_shader_src, fragment_shader_src, None
+        ).unwrap()
+    }
+}
+
+enum RenderableIndices {
+    None(PrimitiveType),
+    Buffer(glium::IndexBuffer)
+}
+
+trait Renderable {
+    fn get_vertex_array<T: 'static + NormalVertex + glium::vertex::Vertex + std::marker::Send>(
+        &self, display: &Display
+    ) -> glium::VertexBuffer<T>;
+
+    fn get_indices(&self) -> RenderableIndices;
+}
+
+impl Renderable for IsoSphere {
+    fn get_vertex_array<T: 'static + NormalVertex + glium::vertex::Vertex + std::marker::Send>(
+        &self, display: &Display
+    ) -> glium::VertexBuffer<T> {
+        glium::VertexBuffer::new(display, self.faces_to_vertex_array::<T>())
+    }
+
+    fn get_indices(&self) ->  RenderableIndices {
+        RenderableIndices::None(PrimitiveType::TrianglesList)
+    }
 }
 
 struct Face {
