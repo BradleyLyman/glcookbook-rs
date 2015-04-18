@@ -256,40 +256,47 @@ impl LightingRenderer {
             #version 330
             in vec3 position;
             in vec3 normal;
-            out vec4 color;
+            smooth out vec3 eye_space_normal;
+            smooth out vec3 eye_space_position;
 
             uniform mat4 MVP;
             uniform mat4 MV;
             uniform mat3 N;
-            uniform vec3 light_position;
-            uniform vec3 diffuse_color;
-            uniform vec3 specular_color;
-            uniform float shininess;
-
-            const vec3 eye_space_camera_pos = vec3(0,0,0);
 
             void main() {
-                mat3 normMat = mat3(MV);
-                vec4 eye_space_light_pos = MV * vec4(light_position, 1);
-                vec4 eye_space_pos       = MV * vec4(position, 1);
-                vec3 eye_space_normal    = normalize(normMat*normal);
-                vec3 L = normalize(eye_space_light_pos.xyz-eye_space_pos.xyz);
-                vec3 V = normalize(eye_space_camera_pos-eye_space_pos.xyz);
-                vec3 H = normalize(L + V);
-                float diffuse  = max(0, dot(eye_space_normal, L));
-                float specular = max(0, pow(dot(eye_space_normal, H), shininess));
-
-                color = specular*vec4(specular_color, 1) + diffuse*vec4(diffuse_color, 1);
+                eye_space_normal = N*normal;
+                eye_space_position = (MV*vec4(position, 1)).xyz;
                 gl_Position = MVP * vec4(position , 1.0);
             }
         "#;
 
         let fragment_shader_src = r#"
             #version 330
-            in vec4 color;
+
+            smooth in vec3 eye_space_normal;
+            smooth in vec3 eye_space_position;
             out vec4 vFragColor;
+
+            uniform vec3 light_position;
+            uniform vec3 diffuse_color;
+            uniform vec3 specular_color;
+            uniform mat4 MV;
+            uniform float shininess;
+
+            const vec3 eye_space_camera_pos = vec3(0,0,0);
+
             void main() {
-                vFragColor = color;;
+                vec3 eye_space_light_pos = (MV * vec4(light_position, 1)).xyz;
+                vec3 norm                = normalize(eye_space_normal);
+
+                vec3 L = normalize(eye_space_light_pos - eye_space_position);
+                vec3 V = normalize(eye_space_camera_pos - eye_space_position);
+                vec3 H = normalize(L + V);
+                float diffuse  = max(0, dot(norm, L));
+                float specular = max(0, pow(dot(eye_space_normal, H), shininess));
+
+                vFragColor = specular*vec4(specular_color, 1) + diffuse*vec4(diffuse_color, 1);
+
             }
         "#;
 
