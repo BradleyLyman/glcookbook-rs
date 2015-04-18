@@ -29,29 +29,14 @@ fn main() {
         .unwrap();
 
     let ball: IsoSphere = IsoSphere::new();
-    let mut grid: Grid<Vertex> = Grid::new(20.0, 20.0, 20, 20);
+    let mut grid = Grid::new(20.0, 20.0, 20, 20);
     let mut camera         = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
     camera.pos.y = 2.0;
 
-    for vertex in &mut grid.vertices {
-        vertex.normal = [0.0, 1.0, 0.0];
-    }
 
     let normal_program = create_normal_renderer_program(&display);
     let lighting_renderer = LightingRenderer::new(&display);
 
-    let vertex_buf = glium::VertexBuffer::new(&display, grid.vertices);
-    let indices    = glium::index::IndexBuffer::new(
-        &display, glium::index::TrianglesList(grid.indices)
-    );
-    let norm_indices = glium::index::NoIndices(glium::index::PrimitiveType::Points);
-
-    let ball_v_buf   =
-        glium::VertexBuffer::new(&display, ball.faces_to_vertex_array::<Vertex>());
-    let ball_indices =
-        glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
-    let ball_norm_indices =
-        glium::index::NoIndices(glium::index::PrimitiveType::Points);
     let ball_model = nalgebra::Mat4::new(
         1.0f32, 0.0, 0.0, 0.0,
         0.0, 1.0, 0.0, 2.0,
@@ -76,21 +61,7 @@ fn main() {
         let mut target = display.draw();
         target.clear_color(0.02, 0.02, 0.05, 1.0);
 
-        let mut uniforms = uniform!(
-            MVP  : mv
-        );
-        target.draw(
-            &vertex_buf, &indices, &lighting_renderer.program, &uniforms, &draw_params
-        ).unwrap();
-
-        uniforms = uniform!{
-            MVP : mvp
-        };
-        target.draw(
-            &ball_v_buf, &ball_norm_indices, &normal_program, &uniforms, &draw_params
-        ).unwrap();
-
-
+        lighting_renderer.draw(&mut target, &grid, &mv);
         lighting_renderer.draw(&mut target, &ball, &mvp);
 
         target.finish();
@@ -178,7 +149,7 @@ impl LightingRenderer {
             MVP : *mvp
         );
 
-        match obj.get_indices() {
+        match obj.get_indices(&self.display) {
             RenderableIndices::None(primitive) => {
                 frame.draw(
                     &obj.get_vertex_array::<Vertex>(&self.display),
@@ -229,24 +200,43 @@ enum RenderableIndices {
     Buffer(glium::IndexBuffer)
 }
 
+trait RenderableVertex:
+    'static + NormalVertex + glium::vertex::Vertex + std::marker::Send {}
+
 trait Renderable {
-    fn get_vertex_array<T: 'static + NormalVertex + glium::vertex::Vertex + std::marker::Send>(
+    fn get_vertex_array<T: RenderableVertex>(
         &self, display: &Display
     ) -> glium::VertexBuffer<T>;
 
-    fn get_indices(&self) -> RenderableIndices;
+    fn get_indices(&self, display: &Display) -> RenderableIndices;
 }
 
 impl Renderable for IsoSphere {
-    fn get_vertex_array<T: 'static + NormalVertex + glium::vertex::Vertex + std::marker::Send>(
+    fn get_vertex_array<T: RenderableVertex>(
         &self, display: &Display
     ) -> glium::VertexBuffer<T> {
         glium::VertexBuffer::new(display, self.faces_to_vertex_array::<T>())
     }
 
-    fn get_indices(&self) ->  RenderableIndices {
+    fn get_indices(&self, display: &Display) ->  RenderableIndices {
         RenderableIndices::None(PrimitiveType::TrianglesList)
     }
+}
+
+impl Renderable for Grid {
+    fn get_vertex_array<T: RenderableVertex>(&self, display: &Display)
+        -> glium::VertexBuffer<T> {
+        glium::VertexBuffer::new(display, self.get_vertices::<T>())
+    }
+
+    fn get_indices(&self, display: &Display) -> RenderableIndices {
+        RenderableIndices::Buffer(
+            glium::IndexBuffer::new(
+                display, glium::index::TrianglesList(self.indices.clone())
+            )
+        )
+    }
+
 }
 
 struct Face {
@@ -458,6 +448,8 @@ impl NormalVertex for Vertex {
         self.normal = [x, y, z];
     }
 }
+
+impl RenderableVertex for Vertex {}
 
 
 

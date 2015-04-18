@@ -1,17 +1,26 @@
 use ::BaseVertex;
 
-pub struct Grid<T: BaseVertex> {
-    pub vertices : Vec<T>,
-    pub indices  : Vec<u16>
+pub struct Grid{
+    pub indices : Vec<u16>,
+    vertices    : Vec<[f32; 3]>
 }
 
-impl <T: BaseVertex> Grid<T> {
-    pub fn new(depth: f32, width: f32, x_count: u16, z_count: u16) -> Grid<T> {
+impl Grid {
+    pub fn new(depth: f32, width: f32, x_count: u16, z_count: u16) -> Grid {
         let mut grid = Grid { vertices : vec![], indices  : vec![] };
 
         grid.build_vertices(depth, width, x_count, z_count);
         grid.build_indices(x_count, z_count);
         grid
+    }
+
+    pub fn get_vertices<T: BaseVertex>(&self) -> Vec<T> {
+        let mut verts = vec![];
+
+        for pos in &self.vertices {
+            verts.push(T::from_position(pos[0], pos[1], pos[2]));
+        }
+        verts
     }
 
     fn build_vertices(
@@ -22,9 +31,7 @@ impl <T: BaseVertex> Grid<T> {
             for i in 0..x_count {
                 let scaled_i = ((i as f32)/(x_count as f32 - 1.0)) * 2.0 - 1.0;
 
-                self.vertices.push(
-                    T::from_position(scaled_i * width, 0.0, scaled_j * depth)
-                );
+                self.vertices.push([scaled_i * width, 0.0, scaled_j * depth]);
             }
         }
     }

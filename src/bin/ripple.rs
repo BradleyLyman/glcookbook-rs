@@ -24,9 +24,9 @@ fn main() {
         .build_glium()
         .unwrap();
 
-    let grid: Grid<Vertex> = Grid::new(20.0, 20.0, 60, 60);
-    let vertex_buf         = glium::VertexBuffer::new(&display, grid.vertices);
-    let indices            = glium::index::IndexBuffer::new(
+    let grid       = Grid::new(20.0, 20.0, 60, 60);
+    let vertex_buf = glium::VertexBuffer::new(&display, grid.get_vertices::<Vertex>());
+    let indices    = glium::index::IndexBuffer::new(
         &display, glium::index::TrianglesList(grid.indices)
     );
 
@@ -108,7 +108,7 @@ fn create_shader_program(display: &Display) -> glium::Program {
         void main() {
             float distance = length(position * frequency);
             float y = amplitude*sin(-PI*distance+time);
-            gl_Position = MVP * vec4(position.x, position.z, y, 1.0);
+            gl_Position = MVP * vec4(position.x, y, position.z, 1.0);
         }
     "#;
 
