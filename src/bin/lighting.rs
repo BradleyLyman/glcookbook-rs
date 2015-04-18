@@ -32,15 +32,20 @@ fn main() {
     let ball = IsoSphere::new();
     let grid = Grid::new(20.0, 20.0, 20, 20);
     let ball_model =
-        nalgebra::Iso3::new(Vec3::new(0.0, 2.0, -20.0), nalgebra::zero());
+        nalgebra::Iso3::new(Vec3::new(0.0, 2.0, 0.0), nalgebra::zero());
 
 
     implement_vertex!(Vertex, position, normal);
     let mut lighting_renderer = LightingRenderer::new(&display);
+    let normal_renderer       = NormalRenderer::new(&display);
     let mut camera            = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
+    let mut time = 0.0f32;
 
     camera.pos.y = 2.0;
-    lighting_renderer.light_position.y = 10.0;
+    lighting_renderer.light_position = Vec3::new(10.0, 2.0, 0.0);
+    lighting_renderer.diffuse_color = Vec3::new(0.2, 0.2, 0.8);
+    lighting_renderer.specular_color = Vec3::new(0.8, 0.8, 0.8);
+    lighting_renderer.shininess = 64.0;
 
 
     let mut controller = Controller::new();
@@ -48,6 +53,10 @@ fn main() {
     controller.move_speed = 0.2;
 
     'mainLoop : loop {
+        time += 0.02;
+        let (x, z) = time.sin_cos();
+        lighting_renderer.light_position = Vec3::new(x*10.0, 2.0, z*10.0);
+
         let mut target = display.draw();
         target.clear_color_and_depth((0.02, 0.02, 0.05, 1.0), 1.0);
 
@@ -62,6 +71,15 @@ fn main() {
             &camera.get_view_transform(), &ball_model
         );
 
+        normal_renderer.draw(
+            &mut target, &ball, &camera.projection.to_mat(),
+            &camera.get_view_transform(), &ball_model
+        );
+
+        normal_renderer.draw(
+            &mut target, &grid, &camera.projection.to_mat(),
+            &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero())
+        );
         target.finish();
 
         for event in display.poll_events() {
@@ -128,6 +146,45 @@ fn create_normal_renderer_program(display: &Display) -> glium::Program {
     ).unwrap()
 }
 
+struct NormalRenderer {
+    pub program : glium::Program,
+    display    : Display
+}
+
+impl NormalRenderer {
+    fn new(display: &Display) -> NormalRenderer {
+        NormalRenderer {
+            program : create_normal_renderer_program(&display),
+            display : display.clone()
+        }
+    }
+
+    fn draw<T>(
+        &self, frame: &mut glium::Frame, obj: &T,
+        proj: &Mat4<f32>, view: &Iso3<f32>, model: &Iso3<f32>
+    ) where T: Renderable {
+        let mv = view.prepend_transformation(model);
+        let mvp = *proj * nalgebra::to_homogeneous(&mv);
+
+        let uniforms = uniform!(
+            MVP: mvp
+        );
+
+        let params = glium::DrawParameters {
+            depth_test: glium::DepthTest::IfLess,
+            depth_write: true,
+            .. std::default::Default::default()
+        };
+
+        frame.draw(
+            &obj.get_vertex_array::<Vertex>(&self.display),
+            &NoIndices(PrimitiveType::Points),
+            &self.program, &uniforms,
+            &params
+        ).unwrap();
+    }
+}
+
 struct LightingRenderer {
     pub program        : glium::Program,
     pub light_position : Vec3<f32>,
@@ -144,7 +201,7 @@ impl LightingRenderer {
             light_position : Vec3::new(0.0, 0.0, 0.0),
             diffuse_color  : Vec3::new(1.0, 1.0, 1.0),
             specular_color : Vec3::new(1.0, 1.0, 1.0),
-            shininess      : 0.5,
+            shininess      : 128.0,
             display        : display.clone()
         }
     }
@@ -170,7 +227,8 @@ impl LightingRenderer {
             N              : n,
             light_position : self.light_position,
             diffuse_color  : self.diffuse_color,
-            specular_color : self.specular_color
+            specular_color : self.specular_color,
+            shininess      : self.shininess
         );
 
         match obj.get_indices(&self.display) {
@@ -211,16 +269,17 @@ impl LightingRenderer {
             const vec3 eye_space_camera_pos = vec3(0,0,0);
 
             void main() {
+                mat3 normMat = mat3(MV);
                 vec4 eye_space_light_pos = MV * vec4(light_position, 1);
                 vec4 eye_space_pos       = MV * vec4(position, 1);
-                vec3 eye_space_normal    = normalize(N*normal);
+                vec3 eye_space_normal    = normalize(normMat*normal);
                 vec3 L = normalize(eye_space_light_pos.xyz-eye_space_pos.xyz);
-                vec3 V = normalize(eye_space_camera_pos.xyz-eye_space_pos.xyz);
+                vec3 V = normalize(eye_space_camera_pos-eye_space_pos.xyz);
                 vec3 H = normalize(L + V);
                 float diffuse  = max(0, dot(eye_space_normal, L));
                 float specular = max(0, pow(dot(eye_space_normal, H), shininess));
 
-                color = diffuse*vec4(diffuse_color, 1);// + specular*vec4(specular_color, 1);
+                color = specular*vec4(specular_color, 1) + diffuse*vec4(diffuse_color, 1);
                 gl_Position = MVP * vec4(position , 1.0);
             }
         "#;
@@ -315,7 +374,6 @@ impl IsoSphere {
         let mut sphere = IsoSphere { faces : vec![] };
 
         sphere.generate_icosahedron();
-        sphere.subdivide_faces();
         sphere.subdivide_faces();
         sphere
     }
