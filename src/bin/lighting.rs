@@ -10,11 +10,10 @@ extern crate glCookbook;
 extern crate nalgebra;
 extern crate num;
 
-use std::default::{Default};
 use glutin::{Event, VirtualKeyCode};
 use glium::{DisplayBuild, Surface, Display};
-use glium::index::{IndicesSource, ToIndicesSource, NoIndices, PrimitiveType};
-use glCookbook::{BaseVertex, Grid, FreeCamera};
+use glium::index::{NoIndices, PrimitiveType};
+use glCookbook::{BaseVertex, Grid, FreeCamera, RenderableVertex, RenderableIndices, Renderable, NormalVertex};
 use nalgebra::{Vec3, Norm, Mat4, Iso3, Transformation, RotationMatrix};
 use num::Float;
 
@@ -45,7 +44,7 @@ fn main() {
     lighting_renderer.light_position = Vec3::new(10.0, 2.0, 0.0);
     lighting_renderer.diffuse_color = Vec3::new(0.2, 0.2, 0.8);
     lighting_renderer.specular_color = Vec3::new(0.8, 0.8, 0.8);
-    lighting_renderer.shininess = 64.0;
+    lighting_renderer.shininess = 256.0;
 
 
     let mut controller = Controller::new();
@@ -71,15 +70,6 @@ fn main() {
             &camera.get_view_transform(), &ball_model
         );
 
-        normal_renderer.draw(
-            &mut target, &ball, &camera.projection.to_mat(),
-            &camera.get_view_transform(), &ball_model
-        );
-
-        normal_renderer.draw(
-            &mut target, &grid, &camera.projection.to_mat(),
-            &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero())
-        );
         target.finish();
 
         for event in display.poll_events() {
@@ -306,22 +296,6 @@ impl LightingRenderer {
     }
 }
 
-enum RenderableIndices {
-    None(PrimitiveType),
-    Buffer(glium::IndexBuffer)
-}
-
-trait RenderableVertex:
-    'static + NormalVertex + glium::vertex::Vertex + std::marker::Send {}
-
-trait Renderable {
-    fn get_vertex_array<T: RenderableVertex>(
-        &self, display: &Display
-    ) -> glium::VertexBuffer<T>;
-
-    fn get_indices(&self, display: &Display) -> RenderableIndices;
-}
-
 impl Renderable for IsoSphere {
     fn get_vertex_array<T: RenderableVertex>(
         &self, display: &Display
@@ -332,28 +306,6 @@ impl Renderable for IsoSphere {
     fn get_indices(&self, display: &Display) ->  RenderableIndices {
         RenderableIndices::None(PrimitiveType::TrianglesList)
     }
-}
-
-impl Renderable for Grid {
-    fn get_vertex_array<T: RenderableVertex>(&self, display: &Display)
-        -> glium::VertexBuffer<T> {
-        let mut vertices = self.get_vertices::<T>();
-
-        for vertex in &mut vertices {
-            vertex.set_normal(0.0, 1.0, 0.0);
-        }
-
-        glium::VertexBuffer::new(display, vertices)
-    }
-
-    fn get_indices(&self, display: &Display) -> RenderableIndices {
-        RenderableIndices::Buffer(
-            glium::IndexBuffer::new(
-                display, glium::index::TrianglesList(self.indices.clone())
-            )
-        )
-    }
-
 }
 
 struct Face {
@@ -555,10 +507,6 @@ impl BaseVertex for Vertex {
     fn from_position(x: f32, y: f32, z: f32) -> Vertex {
         Vertex { position : [x, y, z], normal : [0.0, 0.0, 0.0] }
     }
-}
-
-trait NormalVertex : BaseVertex {
-    fn set_normal(&mut self, x: f32, y: f32, z: f32) -> ();
 }
 
 impl NormalVertex for Vertex {
