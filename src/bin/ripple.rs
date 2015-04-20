@@ -12,7 +12,7 @@ extern crate nalgebra;
 use glutin::{Event};
 use glium::{DisplayBuild, Surface, Display};
 use nalgebra::{Iso3, Vec3, ToHomogeneous, Rotation};
-use glCookbook::{BaseVertex, Grid, FreeCamera};
+use glCookbook::{Grid, FreeCamera};
 
 // Program entry point
 fn main() {
@@ -25,19 +25,17 @@ fn main() {
         .unwrap();
 
     let grid       = Grid::new(20.0, 20.0, 60, 60);
-    let vertex_buf = glium::VertexBuffer::new(&display, grid.get_vertices::<Vertex>());
+    let vertex_buf = glium::VertexBuffer::new(&display, grid.get_vertices());
     let indices    = glium::index::IndexBuffer::new(
         &display, glium::index::TrianglesList(grid.indices)
     );
 
     let program = create_shader_program(&display);
 
-    implement_vertex!(Vertex, position);
-
-    let mut time       = 0.0f32;
-    let mut model      = Iso3::new(nalgebra::zero(), nalgebra::zero());
+    let mut time   = 0.0f32;
+    let mut model  = Iso3::new(nalgebra::zero(), nalgebra::zero());
     let mut camera = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
-    camera.pos.z = 30.0;
+    camera.pos.z   = 30.0;
 
     let mut draw_params: glium::DrawParameters = std::default::Default::default();
     draw_params.polygon_mode = glium::PolygonMode::Line;
@@ -125,13 +123,3 @@ fn create_shader_program(display: &Display) -> glium::Program {
     ).unwrap()
 }
 
-#[derive(Clone, Copy)]
-struct Vertex {
-    position : [f32; 3]
-}
-
-impl BaseVertex for Vertex {
-    fn from_position(x: f32, y: f32, z: f32) -> Vertex {
-        Vertex { position : [x, y, z] }
-    }
-}

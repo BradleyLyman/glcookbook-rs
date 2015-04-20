@@ -1,5 +1,5 @@
 use ::{
-    NormalVertex, Renderable, RenderableVertex, RenderableIndices
+    Vertex, Renderable, RenderableIndices
 };
 use ::nalgebra::{Vec3, Norm};
 use ::glium::{VertexBuffer, Display};
@@ -37,7 +37,7 @@ impl IsoSphere {
         sphere
     }
 
-    pub fn faces_to_vertex_array<T: NormalVertex>(&self) -> Vec<T> {
+    pub fn faces_to_vertex_array(&self) -> Vec<Vertex> {
         let mut vertices = vec![];
         for face in &self.faces {
             vertices.push(IsoSphere::vertex_from_vec(face.v1));
@@ -47,9 +47,9 @@ impl IsoSphere {
         vertices
     }
 
-    fn vertex_from_vec<T: NormalVertex>(vec: Vec3<f32>) -> T {
-        let mut vert = T::from_position(vec.x, vec.y, vec.z);
-        vert.set_normal(vec.x, vec.y, vec.z);
+    fn vertex_from_vec(vec: Vec3<f32>) -> Vertex {
+        let mut vert = Vertex::from_position(vec.x, vec.y, vec.z);
+        vert.normal = [vec.x, vec.y, vec.z];
         vert
     }
 
@@ -117,10 +117,8 @@ impl IsoSphere {
 }
 
 impl Renderable for IsoSphere {
-    fn get_vertex_array<T: RenderableVertex>(
-        &self, display: &Display
-    ) -> VertexBuffer<T> {
-        VertexBuffer::new(display, self.faces_to_vertex_array::<T>())
+    fn get_vertex_array(&self, display: &Display) -> VertexBuffer<Vertex> {
+        VertexBuffer::new(display, self.faces_to_vertex_array())
     }
 
     fn get_indices(&self, _: &Display) ->  RenderableIndices {

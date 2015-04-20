@@ -1,9 +1,5 @@
-use ::{
-    RenderableVertex, RenderableIndices, BaseVertex
-};
-use ::glium::{
-    IndexBuffer, VertexBuffer, Display
-};
+use ::{RenderableIndices, Vertex};
+use ::glium::{IndexBuffer, VertexBuffer, Display};
 use ::glium::index::{TrianglesList};
 
 pub struct Grid{
@@ -20,11 +16,11 @@ impl Grid {
         grid
     }
 
-    pub fn get_vertices<T: BaseVertex>(&self) -> Vec<T> {
+    pub fn get_vertices(&self) -> Vec<Vertex> {
         let mut verts = vec![];
 
         for pos in &self.vertices {
-            verts.push(T::from_position(pos[0], pos[1], pos[2]));
+            verts.push(Vertex::from_position(pos[0], pos[1], pos[2]));
         }
         verts
     }
@@ -76,12 +72,11 @@ impl Grid {
 }
 
 impl ::Renderable for Grid {
-    fn get_vertex_array<T: RenderableVertex>(&self, display: &Display)
-        -> VertexBuffer<T> {
-        let mut vertices = self.get_vertices::<T>();
+    fn get_vertex_array(&self, display: &Display) -> VertexBuffer<Vertex> {
+        let mut vertices = self.get_vertices();
 
         for vertex in &mut vertices {
-            vertex.set_normal(0.0, 1.0, 0.0);
+            vertex.normal = [0.0, 1.0, 0.0];
         }
 
         VertexBuffer::new(display, vertices)

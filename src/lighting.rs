@@ -1,5 +1,5 @@
 use ::nalgebra::{Vec3, Mat4, Iso3, to_homogeneous, Transformation, RotationMatrix};
-use ::{Renderable, RenderableIndices, RenderableVertex};
+use ::{Renderable, RenderableIndices};
 use ::glium::{Program, Display, DrawParameters, DepthTest, Frame, Surface};
 use ::glium::index::{NoIndices};
 
@@ -25,10 +25,10 @@ impl LightingRenderer {
         }
     }
 
-    pub fn draw<T, V>(
+    pub fn draw<T>(
         &self, frame: &mut Frame,
         obj: &T, proj: &Mat4<f32>, view: &Iso3<f32>, model: &Iso3<f32>
-    ) where T: Renderable, V: RenderableVertex {
+    ) where T: Renderable {
 
         let mv  = view.prepend_transformation(model);
         let mvp = *proj * to_homogeneous(&mv);
@@ -53,7 +53,7 @@ impl LightingRenderer {
         match obj.get_indices(&self.display) {
             RenderableIndices::None(primitive) => {
                 frame.draw(
-                    &obj.get_vertex_array::<V>(&self.display),
+                    &obj.get_vertex_array(&self.display),
                     &NoIndices(primitive),
                     &self.program, &uniforms,
                     &params
@@ -61,7 +61,7 @@ impl LightingRenderer {
             },
             RenderableIndices::Buffer(ref buffer) => {
                 frame.draw(
-                    &obj.get_vertex_array::<V>(&self.display),
+                    &obj.get_vertex_array(&self.display),
                     buffer,
                     &self.program, &uniforms,
                     &params

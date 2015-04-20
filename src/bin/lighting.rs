@@ -14,8 +14,8 @@ use glutin::{Event};
 use glium::{DisplayBuild, Surface, Display};
 use glium::index::{NoIndices, PrimitiveType};
 use glCookbook::{
-    BaseVertex, Grid, FreeCamera, RenderableVertex,
-    Renderable, NormalVertex,
+    Grid, FreeCamera,
+    Renderable,
     Controller, IsoSphere, LightingRenderer
 };
 use nalgebra::{Vec3, Mat4, Iso3, Transformation};
@@ -37,8 +37,6 @@ fn main() {
     let ball_model =
         nalgebra::Iso3::new(Vec3::new(0.0, 2.0, 0.0), nalgebra::zero());
 
-
-    implement_vertex!(Vertex, position, normal);
     let mut lighting_renderer = LightingRenderer::new(&display);
     let normal_renderer       = NormalRenderer::new(&display);
     let mut camera            = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
@@ -64,12 +62,12 @@ fn main() {
         target.clear_color_and_depth((0.02, 0.02, 0.05, 1.0), 1.0);
 
 
-        lighting_renderer.draw::<_, Vertex>(
+        lighting_renderer.draw(
             &mut target, &grid, &camera.projection.to_mat(),
             &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero())
         );
 
-        lighting_renderer.draw::<_, Vertex>(
+        lighting_renderer.draw(
             &mut target, &ball, &camera.projection.to_mat(),
             &camera.get_view_transform(), &ball_model
         );
@@ -176,7 +174,7 @@ impl NormalRenderer {
         };
 
         frame.draw(
-            &obj.get_vertex_array::<Vertex>(&self.display),
+            &obj.get_vertex_array(&self.display),
             &NoIndices(PrimitiveType::Points),
             &self.program, &uniforms,
             &params
@@ -184,22 +182,3 @@ impl NormalRenderer {
     }
 }
 
-#[derive(Clone, Copy)]
-struct Vertex {
-    position : [f32; 3],
-    normal   : [f32; 3]
-}
-
-impl BaseVertex for Vertex {
-    fn from_position(x: f32, y: f32, z: f32) -> Vertex {
-        Vertex { position : [x, y, z], normal : [0.0, 0.0, 0.0] }
-    }
-}
-
-impl NormalVertex for Vertex {
-    fn set_normal(&mut self, x: f32, y: f32, z: f32) {
-        self.normal = [x, y, z];
-    }
-}
-
-impl RenderableVertex for Vertex {}

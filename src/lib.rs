@@ -22,13 +22,18 @@ pub use camera::FreeCamera;
 pub use iso_sphere::IsoSphere;
 pub use lighting::LightingRenderer;
 
-
-pub trait BaseVertex: Copy + Clone {
-    fn from_position(x: f32, y: f32, z: f32) -> Self;
+#[derive(Copy, Clone)]
+pub struct Vertex {
+    position : [f32; 3],
+    normal   : [f32; 3]
 }
 
-pub trait NormalVertex: BaseVertex {
-    fn set_normal(&mut self, x: f32, y: f32, z: f32);
+implement_vertex!(Vertex, position, normal);
+
+impl Vertex {
+    pub fn from_position(x: f32, y: f32, z: f32) -> Vertex {
+        Vertex { position : [x, y, z], normal : [0.0, 0.0, 0.0] }
+    }
 }
 
 pub enum RenderableIndices {
@@ -36,14 +41,8 @@ pub enum RenderableIndices {
     Buffer(IndexBuffer)
 }
 
-pub trait RenderableVertex:
-    'static + NormalVertex + glium::vertex::Vertex + std::marker::Send {}
-
 pub trait Renderable {
-    fn get_vertex_array<T: RenderableVertex>(
-        &self, display: &Display
-    ) -> VertexBuffer<T>;
-
+    fn get_vertex_array(&self, display: &Display) -> VertexBuffer<Vertex>;
     fn get_indices(&self, display: &Display) -> RenderableIndices;
 }
 
