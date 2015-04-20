@@ -1,4 +1,5 @@
 extern crate nalgebra;
+#[macro_use]
 extern crate glium;
 extern crate glutin;
 extern crate num;
@@ -14,11 +15,12 @@ use glutin::{Event, VirtualKeyCode};
 mod grid;
 mod camera;
 mod iso_sphere;
+mod lighting;
 
 pub use grid::Grid;
 pub use camera::FreeCamera;
 pub use iso_sphere::IsoSphere;
-
+pub use lighting::LightingRenderer;
 
 
 pub trait BaseVertex: Copy + Clone {
