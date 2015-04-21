@@ -16,7 +16,8 @@ use glium::index::{NoIndices, PrimitiveType};
 use glCookbook::{
     Grid, FreeCamera,
     RenderableObj,
-    Controller, IsoSphere, LightingRenderer
+    Controller, IsoSphere, LightingRenderer,
+    NormalRenderer
 };
 use nalgebra::{Vec3, Mat4, Iso3, Transformation};
 use num::Float;
@@ -90,93 +91,6 @@ fn main() {
             controller.process_event(&event);
         }
         controller.update(&mut camera, &display);
-    }
-}
-
-
-fn create_normal_renderer_program(display: &Display) -> glium::Program {
-    let vertex_shader_src = r#"
-        #version 330
-        in vec3 position;
-        in vec3 normal;
-        out vec3 g_normal;
-
-        void main() {
-            g_normal = normal;
-            gl_Position = vec4(position, 1.0);
-        }
-    "#;
-
-    let geometry_shader_src = r#"
-        #version 330
-        layout(points) in;
-
-        layout(line_strip, max_vertices = 2) out;
-
-        uniform mat4 MVP;
-
-        in vec3 g_normal[];
-
-        void main() {
-            vec4 v0 = gl_in[0].gl_Position;
-            gl_Position = MVP * v0;
-            EmitVertex();
-
-            vec4 v1 = v0 + vec4(g_normal[0] * 0.5, 0);
-            gl_Position = MVP * v1;
-            EmitVertex();
-
-            EndPrimitive();
-        }
-    "#;
-
-    let fragment_shader_src = r#"
-        #version 330
-        out vec4 frag_color;
-        void main() {
-            frag_color = vec4(0.0, 0.0, 0.7, 1.0);
-        }
-    "#;
-
-    glium::Program::from_source(
-        display, vertex_shader_src, fragment_shader_src, Some(geometry_shader_src)
-    ).unwrap()
-}
-
-struct NormalRenderer {
-    pub program : glium::Program
-}
-
-impl NormalRenderer {
-    fn new(display: &Display) -> NormalRenderer {
-        NormalRenderer {
-            program : create_normal_renderer_program(&display)
-        }
-    }
-
-    fn draw(
-        &self, frame: &mut glium::Frame, obj: &RenderableObj,
-        proj: &Mat4<f32>, view: &Iso3<f32>, model: &Iso3<f32>
-    ) {
-        let mv = view.prepend_transformation(model);
-        let mvp = *proj * nalgebra::to_homogeneous(&mv);
-
-        let uniforms = uniform!(
-            MVP: mvp
-        );
-
-        let params = glium::DrawParameters {
-            depth_test: glium::DepthTest::IfLess,
-            depth_write: true,
-            .. std::default::Default::default()
-        };
-
-        frame.draw(
-            &obj.vertices,
-            &NoIndices(PrimitiveType::Points),
-            &self.program, &uniforms,
-            &params
-        ).unwrap();
     }
 }
 

@@ -21,11 +21,12 @@ pub use grid::Grid;
 pub use camera::FreeCamera;
 pub use iso_sphere::IsoSphere;
 pub use lighting::LightingRenderer;
+pub use lighting::NormalRenderer;
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
-    position : [f32; 3],
-    normal   : [f32; 3]
+    pub position : [f32; 3],
+    pub normal   : [f32; 3]
 }
 
 implement_vertex!(Vertex, position, normal);
