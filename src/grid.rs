@@ -71,7 +71,7 @@ impl Grid {
     }
 }
 
-impl ::Renderable for Grid {
+impl ::BuildRenderable for Grid {
     fn get_vertex_array(&self, display: &Display) -> VertexBuffer<Vertex> {
         let mut vertices = self.get_vertices();
 

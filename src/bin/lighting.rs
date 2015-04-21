@@ -15,7 +15,7 @@ use glium::{DisplayBuild, Surface, Display};
 use glium::index::{NoIndices, PrimitiveType};
 use glCookbook::{
     Grid, FreeCamera,
-    Renderable,
+    RenderableObj,
     Controller, IsoSphere, LightingRenderer
 };
 use nalgebra::{Vec3, Mat4, Iso3, Transformation};
@@ -32,8 +32,8 @@ fn main() {
         .build_glium()
         .unwrap();
 
-    let ball = IsoSphere::new(3);
-    let grid = Grid::new(20.0, 20.0, 20, 20);
+    let ball = RenderableObj::new(&IsoSphere::new(3), &display);
+    let grid = RenderableObj::new(&Grid::new(20.0, 20.0, 20, 20), &display);
     let ball_model =
         nalgebra::Iso3::new(Vec3::new(0.0, 2.0, 0.0), nalgebra::zero());
 
@@ -144,22 +144,20 @@ fn create_normal_renderer_program(display: &Display) -> glium::Program {
 }
 
 struct NormalRenderer {
-    pub program : glium::Program,
-    display    : Display
+    pub program : glium::Program
 }
 
 impl NormalRenderer {
     fn new(display: &Display) -> NormalRenderer {
         NormalRenderer {
-            program : create_normal_renderer_program(&display),
-            display : display.clone()
+            program : create_normal_renderer_program(&display)
         }
     }
 
-    fn draw<T>(
-        &self, frame: &mut glium::Frame, obj: &T,
+    fn draw(
+        &self, frame: &mut glium::Frame, obj: &RenderableObj,
         proj: &Mat4<f32>, view: &Iso3<f32>, model: &Iso3<f32>
-    ) where T: Renderable {
+    ) {
         let mv = view.prepend_transformation(model);
         let mvp = *proj * nalgebra::to_homogeneous(&mv);
 
@@ -174,7 +172,7 @@ impl NormalRenderer {
         };
 
         frame.draw(
-            &obj.get_vertex_array(&self.display),
+            &obj.vertices,
             &NoIndices(PrimitiveType::Points),
             &self.program, &uniforms,
             &params

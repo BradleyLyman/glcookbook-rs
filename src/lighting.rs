@@ -1,6 +1,6 @@
 use ::nalgebra::{Vec3, Mat4, Iso3, to_homogeneous, Transformation, RotationMatrix};
-use ::{Renderable, RenderableIndices};
-use ::glium::{Program, Display, DrawParameters, DepthTest, Frame, Surface};
+use ::{RenderableObj, RenderableIndices};
+use ::glium::{Program, Display, DrawParameters, DepthTest, Frame, Surface, PolygonMode};
 use ::glium::index::{NoIndices};
 
 
@@ -10,7 +10,7 @@ pub struct LightingRenderer {
     pub diffuse_color  : Vec3<f32>,
     pub specular_color : Vec3<f32>,
     pub shininess      : f32,
-    display            : Display
+    pub wire           : bool
 }
 
 impl LightingRenderer {
@@ -21,22 +21,23 @@ impl LightingRenderer {
             diffuse_color  : Vec3::new(1.0, 1.0, 1.0),
             specular_color : Vec3::new(1.0, 1.0, 1.0),
             shininess      : 128.0,
-            display        : display.clone()
+            wire           : false
         }
     }
 
-    pub fn draw<T>(
+    pub fn draw(
         &self, frame: &mut Frame,
-        obj: &T, proj: &Mat4<f32>, view: &Iso3<f32>, model: &Iso3<f32>
-    ) where T: Renderable {
+        obj: &RenderableObj, proj: &Mat4<f32>, view: &Iso3<f32>, model: &Iso3<f32>
+    )  {
 
         let mv  = view.prepend_transformation(model);
         let mvp = *proj * to_homogeneous(&mv);
         let n   = *mv.to_rot_mat().submat();
 
         let params = DrawParameters {
-            depth_test: DepthTest::IfLess,
-            depth_write: true,
+            depth_test   : DepthTest::IfLess,
+            depth_write  : true,
+            polygon_mode : if self.wire == true { PolygonMode::Line } else { PolygonMode::Fill },
             .. ::std::default::Default::default()
         };
 
@@ -50,10 +51,10 @@ impl LightingRenderer {
             shininess      : self.shininess
         );
 
-        match obj.get_indices(&self.display) {
+        match obj.indices {
             RenderableIndices::None(primitive) => {
                 frame.draw(
-                    &obj.get_vertex_array(&self.display),
+                    &obj.vertices,
                     &NoIndices(primitive),
                     &self.program, &uniforms,
                     &params
@@ -61,7 +62,7 @@ impl LightingRenderer {
             },
             RenderableIndices::Buffer(ref buffer) => {
                 frame.draw(
-                    &obj.get_vertex_array(&self.display),
+                    &obj.vertices,
                     buffer,
                     &self.program, &uniforms,
                     &params

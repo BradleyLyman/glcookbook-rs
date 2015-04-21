@@ -41,9 +41,23 @@ pub enum RenderableIndices {
     Buffer(IndexBuffer)
 }
 
-pub trait Renderable {
+pub trait BuildRenderable {
     fn get_vertex_array(&self, display: &Display) -> VertexBuffer<Vertex>;
     fn get_indices(&self, display: &Display) -> RenderableIndices;
+}
+
+pub struct RenderableObj {
+    pub vertices : VertexBuffer<Vertex>,
+    pub indices  : RenderableIndices
+}
+
+impl RenderableObj {
+    pub fn new<T: BuildRenderable>(obj: &T, display: &Display) -> RenderableObj {
+        RenderableObj {
+            vertices : obj.get_vertex_array(&display),
+            indices  : obj.get_indices(&display)
+        }
+    }
 }
 
 pub struct Controller {

@@ -1,5 +1,5 @@
 use ::{
-    Vertex, Renderable, RenderableIndices
+    Vertex, BuildRenderable, RenderableIndices
 };
 use ::nalgebra::{Vec3, Norm};
 use ::glium::{VertexBuffer, Display};
@@ -116,7 +116,7 @@ impl IsoSphere {
     }
 }
 
-impl Renderable for IsoSphere {
+impl BuildRenderable for IsoSphere {
     fn get_vertex_array(&self, display: &Display) -> VertexBuffer<Vertex> {
         VertexBuffer::new(display, self.faces_to_vertex_array())
     }
