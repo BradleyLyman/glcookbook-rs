@@ -13,13 +13,16 @@ extern crate num;
 use glutin::{Event, ElementState, VirtualKeyCode};
 use glium::{DisplayBuild, Surface, Display, VertexBuffer, PolygonMode, Program, DepthTest, DrawParameters, Frame};
 use glium::index::{NoIndices, PrimitiveType, IndexBuffer};
+use glium::texture::{
+    Texture2d, UncompressedFloatFormat
+};
 use glCookbook::{
     Vertex, Grid, RenderableIndices, RenderableObj,
     BuildRenderable,
     Controller, FreeCamera, LightingRenderer,
     NormalRenderer
 };
-use nalgebra::{Vec3, Mat4, Iso3, Transformation, to_homogeneous};
+use nalgebra::{Vec3, Mat4, Iso3, Transformation, to_homogeneous, Inv};
 
 
 // Program entry point
@@ -40,11 +43,18 @@ fn main() {
     let mut draw_normals     = false;
     let mut camera           = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
 
+    let heightmap = Texture2d::empty_with_format(
+        &display, UncompressedFloatFormat::F32, false, 16, 16
+    ).unwrap();
+
     camera.pos.y = 2.0;
 
     let mut controller = Controller::new();
     controller.rot_speed = 1.0/40.0;
     controller.move_speed = 0.2;
+
+    let generator = HeightmapGenerator::new(&display);
+    generator.generate(&heightmap);
 
     'mainLoop : loop {
         let mut target = display.draw();
@@ -52,19 +62,19 @@ fn main() {
         terrain_renderer.level = 1;
         terrain_renderer.draw(
             &mut target, &grid, &camera.projection.to_mat(),
-            &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero())
+            &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero()), &heightmap
         );
 
         terrain_renderer.draw(
             &mut target, &ring, &camera.projection.to_mat(),
-            &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero())
+            &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero()), &heightmap
         );
 
-        for level in 2..5 {
+        for level in 2..2 {
             terrain_renderer.level = level;
             terrain_renderer.draw(
                 &mut target, &ring, &camera.projection.to_mat(),
-                &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero())
+                &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero()), &heightmap
             );
         }
 
@@ -102,6 +112,66 @@ fn main() {
     }
 }
 
+pub struct HeightmapGenerator {
+    pub program : glium::Program,
+    pub fs_quad : VertexBuffer<Vertex>
+}
+
+impl HeightmapGenerator {
+    fn new(display: &Display) -> HeightmapGenerator {
+        HeightmapGenerator {
+            program : HeightmapGenerator::create_shader_program(&display),
+            fs_quad : HeightmapGenerator::create_fullscreen_quad(&display)
+        }
+    }
+
+    fn generate(&self, heightmap: &Texture2d) {
+        let mut surface = heightmap.as_surface();
+
+        surface.clear(Some((0.0, 0.0, 0.0, 0.0)), None, None);
+        surface.draw(
+            &self.fs_quad, &NoIndices(PrimitiveType::TriangleStrip),
+            &self.program, &uniform!(), &std::default::Default::default()
+        ).unwrap();
+    }
+
+    fn create_fullscreen_quad(display: &Display) -> VertexBuffer<Vertex> {
+        VertexBuffer::new(display, vec![
+            Vertex::from_position(-1.0, -1.0, 0.0),
+            Vertex::from_position( 1.0, -1.0, 0.0),
+            Vertex::from_position(-1.0,  1.0, 0.0),
+            Vertex::from_position( 1.0,  1.0, 0.0)
+        ])
+    }
+
+    fn create_shader_program(display: &Display) -> glium::Program {
+        let vertex_shader_src = r#"
+            #version 330
+
+            in vec3 position;
+            out vec2 pos;
+            void main() {
+                pos = position.xy;
+                gl_Position = vec4(position, 1.0);
+            }
+        "#;
+
+        let fragment_shader_src = r#"
+            #version 330
+
+            in vec2 pos;
+            out vec4 frag_color;
+            void main() {
+                frag_color = vec4(3*sin(pos.x*3.14159));
+            }
+        "#;
+
+        Program::from_source(
+            display, vertex_shader_src, fragment_shader_src, None
+        ).unwrap()
+    }
+}
+
 pub struct TerrainRenderer {
     pub program : glium::Program,
     pub wire    : bool,
@@ -119,10 +189,10 @@ impl TerrainRenderer {
 
     fn draw(
         &self, frame: &mut Frame,
-        obj: &RenderableObj, proj: &Mat4<f32>, view: &Iso3<f32>, model: &Iso3<f32>
+        obj: &RenderableObj, proj: &Mat4<f32>, view: &Iso3<f32>, model: &Iso3<f32>, heightmap: &Texture2d
     ) {
-        let mv = view.prepend_transformation(model);
-        let mvp = *proj * to_homogeneous(&mv);
+        let v = to_homogeneous(&nalgebra::inv(view).unwrap());
+        let mvp = *proj;
 
         let params = DrawParameters {
             depth_test   : DepthTest::IfLess,
@@ -132,8 +202,10 @@ impl TerrainRenderer {
         };
 
         let uniforms = uniform!(
-            MVP   : mvp,
-            level : self.level
+            MVP       : mvp,
+            V         : v,
+            level     : self.level,
+            heightmap : heightmap
         );
 
         match obj.indices {
@@ -161,23 +233,33 @@ impl TerrainRenderer {
             #version 330
 
             in vec3 position;
+            out float height;
 
+            uniform vec3 camera_offset;
             uniform mat4 MVP;
+            uniform mat4 V;
             uniform int level;
+            uniform sampler2D heightmap;
 
             void main() {
-                float offset = pow(2, level);
+                float level_exp = pow(2, level);
+                vec3 actual_pos =
+                    level_exp * position + vec3(level_exp, 0.0, level_exp);
 
-                gl_Position = MVP * vec4(pow(2,level) * position + vec3(offset, 0.0, offset), 1.0);
+                vec4 world_pos = V * vec4(actual_pos, 1);
+
+                actual_pos.y = texture(heightmap, vec2(world_pos.xz / 16));
+                height = actual_pos.y;
+                gl_Position = MVP * vec4(actual_pos, 1.0);
             }
         "#;
 
         let fragment_shader_src = r#"
             #version 330
-
+            in float height;
             out vec4 frag_color;
             void main() {
-                frag_color = vec4(1.0);
+                frag_color = vec4(1.0, 1.0, height/10.0, 1.0);
             }
         "#;
 
