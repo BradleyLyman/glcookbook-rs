@@ -11,7 +11,7 @@ extern crate nalgebra;
 extern crate num;
 
 use glutin::{Event, ElementState, VirtualKeyCode};
-use glium::{DisplayBuild, Surface, Display, VertexBuffer};
+use glium::{DisplayBuild, Surface, Display, VertexBuffer, PolygonMode, Program, DepthTest, DrawParameters, Frame};
 use glium::index::{NoIndices, PrimitiveType, IndexBuffer};
 use glCookbook::{
     Vertex, Grid, RenderableIndices, RenderableObj,
@@ -19,7 +19,7 @@ use glCookbook::{
     Controller, FreeCamera, LightingRenderer,
     NormalRenderer
 };
-use nalgebra::{Vec3, Mat4, Iso3, Transformation};
+use nalgebra::{Vec3, Mat4, Iso3, Transformation, to_homogeneous};
 
 
 // Program entry point
@@ -35,18 +35,12 @@ fn main() {
 
     let grid = RenderableObj::new(&TerrainMeshCenter, &display);
     let ring = RenderableObj::new(&TerrainRing, &display);
-    let mut lighting_renderer = LightingRenderer::new(&display);
-    let normal_renderer       = NormalRenderer::new(&display);
-    let mut draw_normals      = false;
-    let mut camera            = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
+    let normal_renderer      = NormalRenderer::new(&display);
+    let mut terrain_renderer = TerrainRenderer::new(&display);
+    let mut draw_normals     = false;
+    let mut camera           = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
 
     camera.pos.y = 2.0;
-    lighting_renderer.light_position = Vec3::new(0.0, 5.0, 0.0);
-    lighting_renderer.diffuse_color  = Vec3::new(0.8, 0.8, 0.8);
-    lighting_renderer.specular_color = Vec3::new(0.5, 0.6, 0.5);
-    lighting_renderer.shininess      = 128.0;
-    lighting_renderer.wire           = false;
-
 
     let mut controller = Controller::new();
     controller.rot_speed = 1.0/40.0;
@@ -55,15 +49,24 @@ fn main() {
     'mainLoop : loop {
         let mut target = display.draw();
         target.clear_color_and_depth((0.02, 0.02, 0.05, 1.0), 1.0);
-        lighting_renderer.draw(
+        terrain_renderer.level = 1;
+        terrain_renderer.draw(
             &mut target, &grid, &camera.projection.to_mat(),
             &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero())
         );
 
-        lighting_renderer.draw(
+        terrain_renderer.draw(
             &mut target, &ring, &camera.projection.to_mat(),
             &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero())
         );
+
+        for level in 2..5 {
+            terrain_renderer.level = level;
+            terrain_renderer.draw(
+                &mut target, &ring, &camera.projection.to_mat(),
+                &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero())
+            );
+        }
 
         if draw_normals {
             normal_renderer.draw(
@@ -86,7 +89,7 @@ fn main() {
                     camera.projection.set_aspect((w as f32)/(h as f32));
                 },
                 Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::Space)) => {
-                    lighting_renderer.wire = !lighting_renderer.wire;
+                    terrain_renderer.wire = !terrain_renderer.wire;
                 },
                 Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::Return)) => {
                     draw_normals = !draw_normals;
@@ -96,6 +99,91 @@ fn main() {
             controller.process_event(&event);
         }
         controller.update(&mut camera, &display);
+    }
+}
+
+pub struct TerrainRenderer {
+    pub program : glium::Program,
+    pub wire    : bool,
+    pub level   : i32
+}
+
+impl TerrainRenderer {
+    fn new(display: &Display) -> TerrainRenderer {
+        TerrainRenderer {
+            program : TerrainRenderer::create_shader_program(&display),
+            wire    : false,
+            level   : 1
+        }
+    }
+
+    fn draw(
+        &self, frame: &mut Frame,
+        obj: &RenderableObj, proj: &Mat4<f32>, view: &Iso3<f32>, model: &Iso3<f32>
+    ) {
+        let mv = view.prepend_transformation(model);
+        let mvp = *proj * to_homogeneous(&mv);
+
+        let params = DrawParameters {
+            depth_test   : DepthTest::IfLess,
+            depth_write  : true,
+            polygon_mode : if self.wire == true { PolygonMode::Line } else { PolygonMode::Fill },
+            .. ::std::default::Default::default()
+        };
+
+        let uniforms = uniform!(
+            MVP   : mvp,
+            level : self.level
+        );
+
+        match obj.indices {
+            RenderableIndices::None(primitive) => {
+                frame.draw(
+                    &obj.vertices,
+                    &NoIndices(primitive),
+                    &self.program, &uniforms,
+                    &params
+                ).unwrap();
+            },
+            RenderableIndices::Buffer(ref buffer) => {
+                frame.draw(
+                    &obj.vertices,
+                    buffer,
+                    &self.program, &uniforms,
+                    &params
+                ).unwrap();
+            }
+        }
+    }
+
+    fn create_shader_program(display: &Display) -> glium::Program {
+        let vertex_shader_src = r#"
+            #version 330
+
+            in vec3 position;
+
+            uniform mat4 MVP;
+            uniform int level;
+
+            void main() {
+                float offset = pow(2, level);
+
+                gl_Position = MVP * vec4(pow(2,level) * position + vec3(offset, 0.0, offset), 1.0);
+            }
+        "#;
+
+        let fragment_shader_src = r#"
+            #version 330
+
+            out vec4 frag_color;
+            void main() {
+                frag_color = vec4(1.0);
+            }
+        "#;
+
+        Program::from_source(
+            display, vertex_shader_src, fragment_shader_src, None
+        ).unwrap()
     }
 }
 
