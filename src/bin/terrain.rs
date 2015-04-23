@@ -44,7 +44,7 @@ fn main() {
     let mut camera           = FreeCamera::new(1.0, 75.0, 1.0, 500.0);
 
     let heightmap = Texture2d::empty_with_format(
-        &display, UncompressedFloatFormat::F32, false, 16, 16
+        &display, UncompressedFloatFormat::F32, false, 1024, 1024
     ).unwrap();
 
     camera.pos.y = 2.0;
@@ -55,27 +55,19 @@ fn main() {
 
     let generator = HeightmapGenerator::new(&display);
     generator.generate(&heightmap);
+    let pixels = heightmap.read::<f32,Vec<Vec<f32>>>();
 
     'mainLoop : loop {
         let mut target = display.draw();
         target.clear_color_and_depth((0.02, 0.02, 0.05, 1.0), 1.0);
+
         terrain_renderer.level = 1;
-        terrain_renderer.draw(
-            &mut target, &grid, &camera.projection.to_mat(),
-            &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero()), &heightmap
-        );
+        terrain_renderer.draw(&mut target, &grid, &camera, &heightmap, &pixels);
+        terrain_renderer.draw(&mut target, &ring, &camera, &heightmap, &pixels);
 
-        terrain_renderer.draw(
-            &mut target, &ring, &camera.projection.to_mat(),
-            &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero()), &heightmap
-        );
-
-        for level in 2..2 {
+        for level in 2..6 {
             terrain_renderer.level = level;
-            terrain_renderer.draw(
-                &mut target, &ring, &camera.projection.to_mat(),
-                &camera.get_view_transform(), &Iso3::new(nalgebra::zero(), nalgebra::zero()), &heightmap
-            );
+            terrain_renderer.draw(&mut target, &ring, &camera, &heightmap, &pixels);
         }
 
         if draw_normals {
@@ -161,8 +153,11 @@ impl HeightmapGenerator {
 
             in vec2 pos;
             out vec4 frag_color;
+
+            const vec2 center = vec2(0, 0);
             void main() {
-                frag_color = vec4(3*sin(pos.x*3.14159));
+
+                frag_color = vec4(5*sin(pos.x*3.1415*10) + 5*cos(pos.y*3.1515*10));
             }
         "#;
 
@@ -172,10 +167,28 @@ impl HeightmapGenerator {
     }
 }
 
+fn wrap_to_size(v: f32, wrap: usize) -> usize {
+    let n = (v.abs() as usize) / wrap;
+    let diff = v.abs() as usize - wrap*n;
+
+    let mut res = if v >= 0.0 {
+        diff
+    } else {
+        wrap - diff
+    };
+
+    if diff == 0 {
+        res = 0;
+    }
+
+    res
+}
+
 pub struct TerrainRenderer {
-    pub program : glium::Program,
-    pub wire    : bool,
-    pub level   : i32
+    pub program    : glium::Program,
+    pub wire       : bool,
+    pub level      : i32,
+    camera_heights : [f32; 5]
 }
 
 impl TerrainRenderer {
@@ -183,16 +196,30 @@ impl TerrainRenderer {
         TerrainRenderer {
             program : TerrainRenderer::create_shader_program(&display),
             wire    : false,
-            level   : 1
+            level   : 1,
+            camera_heights : [0.0; 5]
         }
     }
 
+    fn get_height(&mut self, height: f32) -> f32 {
+        for i in 1..5 {
+            self.camera_heights[i] = self.camera_heights[i-1];
+        }
+        self.camera_heights[0] = height;
+
+        (self.camera_heights[0] * 5.0 + self.camera_heights[1] * 3.0 +
+        self.camera_heights[2] * 2.0 + self.camera_heights[3] * 1.0 +
+        self.camera_heights[4] * 1.0) / 12.0
+    }
+
     fn draw(
-        &self, frame: &mut Frame,
-        obj: &RenderableObj, proj: &Mat4<f32>, view: &Iso3<f32>, model: &Iso3<f32>, heightmap: &Texture2d
+        &mut self, frame: &mut Frame,
+        obj: &RenderableObj, camera: &FreeCamera, heightmap: &Texture2d, height_array: &Vec<Vec<f32>>
     ) {
-        let v = to_homogeneous(&nalgebra::inv(view).unwrap());
-        let mvp = *proj;
+        let proj = camera.projection.to_mat();
+        let cam_height = self.get_height(
+            height_array[wrap_to_size(camera.pos.z, 1024)][wrap_to_size(camera.pos.x, 1024)] + 5.0
+        );
 
         let params = DrawParameters {
             depth_test   : DepthTest::IfLess,
@@ -202,10 +229,12 @@ impl TerrainRenderer {
         };
 
         let uniforms = uniform!(
-            MVP       : mvp,
-            V         : v,
-            level     : self.level,
-            heightmap : heightmap
+            projection     : proj,
+            view_rotation  : to_homogeneous(&camera.get_view_transform().rotation),
+            view_transform : camera.pos,
+            level          : self.level,
+            camera_height  : cam_height,
+            heightmap      : heightmap
         );
 
         match obj.indices {
@@ -236,21 +265,23 @@ impl TerrainRenderer {
             out float height;
 
             uniform vec3 camera_offset;
-            uniform mat4 MVP;
-            uniform mat4 V;
+            uniform mat4 projection;
+            uniform mat4 view_rotation;
+            uniform vec3 view_transform;
             uniform int level;
             uniform sampler2D heightmap;
+            uniform float camera_height;
 
             void main() {
                 float level_exp = pow(2, level);
-                vec3 actual_pos =
-                    level_exp * position + vec3(level_exp, 0.0, level_exp);
 
-                vec4 world_pos = V * vec4(actual_pos, 1);
+                vec3 adjusted_pos = level_exp * position + vec3(level_exp, 0.0, level_exp);
+                adjusted_pos.y = texture(heightmap, (adjusted_pos.xz + view_transform.xz)/1024);
+                height = adjusted_pos.y;
 
-                actual_pos.y = texture(heightmap, vec2(world_pos.xz / 16));
-                height = actual_pos.y;
-                gl_Position = MVP * vec4(actual_pos, 1.0);
+                adjusted_pos.y -= camera_height;
+
+                gl_Position = projection * view_rotation * vec4(adjusted_pos, 1.0);
             }
         "#;
 
@@ -259,7 +290,7 @@ impl TerrainRenderer {
             in float height;
             out vec4 frag_color;
             void main() {
-                frag_color = vec4(1.0, 1.0, height/10.0, 1.0);
+                frag_color = vec4(0.2, height/10.0, height/5.0, 1.0);
             }
         "#;
 
